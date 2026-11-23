@@ -4,6 +4,10 @@ A Claude Code skill that turns a person into a talking 3D hologram. Enroll them 
 
 All generation runs on [Scenario](https://www.scenario.com) through its MCP. Rigging and rendering run locally with the bundled HoloMe CLI, which writes Apple ProRes 4444 with alpha (`.mov`) for compositing and a black-background H.264 (`.mp4`) for Screen or Add blending.
 
+## Demo
+
+See it in action in the [demo video on X](https://x.com/AIandDesign/status/2123896798137954667).
+
 ## How it works
 
 **Enroll (once per person, about 255 Scenario CU)**
