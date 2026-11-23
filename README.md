@@ -21,7 +21,7 @@ Audio-only clips (`--audio`) and LTX-2.5 generated talking-head clips for people
 
 ## Requirements
 
-- [Claude Code](https://claude.com/claude-code) with the Scenario MCP connected
+- [Claude Code](https://claude.com/claude-code) with the Scenario MCP connected (see below) and a Scenario account with credits
 - macOS on Apple Silicon (tested), with Google Chrome, Chromium or Brave
 - Node.js 18 or newer with npm, ffmpeg with ffprobe, curl
 - [uv](https://docs.astral.sh/uv/) or Python 3.12
@@ -35,15 +35,32 @@ git clone https://github.com/TheMarco/Scenario-Selfie-Hologram.git ~/.claude/ski
 
 `setup.sh` installs about 1.6 GB into `tool/`: a Python 3.12 virtualenv, Node packages, the MediaPipe face model, the renderer bundle, and the Depth Anything and Whisper weights. It finishes by running `tool/holome doctor`. Pass `--no-prefetch` to download the model weights on first use instead.
 
+### Connect the Scenario MCP
+
+```bash
+claude mcp add --transport http --scope user scenario https://mcp.scenario.com/mcp
+```
+
+Then run `/mcp` inside Claude Code and sign in to Scenario when prompted.
+
+### Update
+
+```bash
+git -C ~/.claude/skills/scenario-selfie-hologram pull
+~/.claude/skills/scenario-selfie-hologram/tool/setup.sh
+```
+
+Run `setup.sh` again after every pull to pick up new dependencies.
+
 ## Use
 
-Ask Claude in plain language:
+Start a new Claude Code session after installing. Ask in plain language, or type `/scenario-selfie-hologram` to start the skill directly:
 
 > Enroll me as a hologram from these selfies: ~/Desktop/front.jpg ~/Desktop/left.jpg ~/Desktop/right.jpg
 
 > Turn ~/Movies/intro.MOV into a vertical hologram video of me.
 
-Each person gets a folder in `~/HoloMe/<name>/` with the photos, sheet, 3D head, rigged bust, previews and renders.
+Each person gets a folder in `~/HoloMe/<name>/` with the photos, sheet, 3D head, rigged bust, previews and renders. Once someone is enrolled, every later video of them goes straight to rendering. A video only drives the motion: the hologram always shows the enrolled person.
 
 ### Recording tips
 
@@ -60,6 +77,12 @@ Each person gets a folder in `~/HoloMe/<name>/` with the photos, sheet, 3D head,
 | LTX-2.5 talking-head clip (optional, for people without a video) | about 18 CU per second of audio at 720p |
 
 The skill states the enrollment cost and confirms once before the first billed call.
+
+## Troubleshooting
+
+- `~/.claude/skills/scenario-selfie-hologram/tool/holome doctor` lists every dependency and what is missing.
+- Scenario calls fail with an authentication error: run `/mcp` and sign in again.
+- The sheet or 3D head looks wrong: the skill regenerates once on its own; better selfies (sharp, even light, one straight-on) fix most cases.
 
 ## Limits
 

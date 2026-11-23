@@ -1,123 +1,145 @@
-# HoloMe
+# HoloMe CLI
 
-High-end, audio-driven 3D hologram generator CLI built for video editors and autonomous agentic video pipelines.
+HoloMe renders talking 3D hologram videos of a person. It rigs a 3D bust of them (from a Tripo `.glb` or a three-view character sheet) and drives it with a selfie video, an audio file, or a generated talking-head clip. Each render can write Apple ProRes 4444 with alpha (`.mov`) and a black-background H.264 (`.mp4`) for Screen or Add blending in one pass.
 
-Reconstructs a sculpted, anatomically rigged 3D bust from a 3-view character sheet (Front / Left / Right) and renders 1080p/4K holographic talking-head videos driven directly by spoken-word audio — outputting both **Apple ProRes 4444 (`.mov` with 10-bit alpha)** and **black-background H.264 (`.mp4` for Screen/Add blending)** in a single pass.
+This is the tool behind the Scenario Selfie Hologram skill. The skill (`../SKILL.md`) runs the Scenario steps; everything below runs locally.
 
-## Quick Start
+## Setup
 
 ```bash
-# Render BOTH transparent ProRes 4444 (.mov) AND black-background H.264 (.mp4)
-./holome render \
-  --audio path/to/speech.wav \
-  --out outputs/my_clip
-
-# Fast 1-frame PNG preview (~1.5s) for framing & style QA
-./holome render \
-  --audio path/to/speech.wav \
-  --out outputs/preview.png \
-  --preview-frame 1.5 \
-  --camera hero
-
-# Clean overlay (no emitter base, transparent alpha only) for picture-in-picture / compositing
-./holome render \
-  --audio path/to/speech.wav \
-  --out outputs/overlay.mov \
-  --format mov \
-  --no-emitter \
-  --camera front
-
-# Agentic pipeline mode (strict JSON metadata on stdout, progress logs on stderr)
-./holome render \
-  --audio speech.mp3 \
-  --text "Optional spoken transcript for tighter phoneme lip-sync." \
-  --out outputs/scene_01 \
-  --format both \
-  --json
+./setup.sh          # Python 3.12 venv, Node packages, MediaPipe model, renderer bundle, model weights
+./holome doctor     # checks every dependency and says what is missing
 ```
 
-## CLI Commands & Key Flags
+Needs node 18+ with npm, ffmpeg with ffprobe, curl, uv or python3.12, and Google Chrome, Chromium or Brave (setup installs Playwright Chromium if none is found). Tested on macOS with Apple Silicon.
 
-### `holome render`
+## Workflow for one person
+
+```bash
+P=~/HoloMe/jane-doe
+
+# 1. Reference still from a selfie video (or use photos directly)
+./holome pick-frame --video $P/videos/take1.MOV --out $P/photos/video_frame.jpg
+
+# 2. Generate $P/sheet.png on Scenario (GPT Image 2.5 Sunburst, with assets/templates/sheet_template.png
+#    as the layout reference), then split it and check qa_panels.png
+./holome split-sheet --sheet $P/sheet.png --out-dir $P/panels
+
+# 3. Generate $P/head.glb on Scenario (Tripo P2 Multi View from the three panel_*_hires.png, faceLimit 50000),
+#    then rig it
+./holome import-glb --glb $P/head.glb --out $P/bust
+
+# 4. Check a still, then render a selfie video as a hologram
+./holome render --bust $P/bust --out $P/previews/hero.png --preview-frame 0
+./holome render --bust $P/bust --mocap-video $P/videos/take1.MOV --out $P/renders/take1
+```
+
+Every command accepts `--json`: one JSON object goes to stdout and progress goes to stderr.
+
+## `render`
+
+Always pass `--bust`. Pick one input:
+
+| Input | What drives the hologram |
+|---|---|
+| `-m, --mocap-video <path>` | A talking-head video of the person (iPhone `.MOV` works). Every frame is tracked (52 blendshapes plus head pose), lips are timed to the speech with Whisper phonemes, and the video's audio becomes the voice. Recommended. |
+| `-a, --audio <path>` | Spoken audio only (`.wav`, `.mp3`, `.m4a`, `.flac`, `.ogg`). Lips follow the speech; blinks and head motion are procedural. With `--mocap-video` or `--driving-video` it replaces that video's audio. |
+| `-d, --driving-video <path>` | A talking-head video whose face pixels are projected onto the bust. |
+| `--preview-frame <sec>` | A single PNG instead of a video. Without audio it shows a neutral pose; `--preview-jaw`, `--preview-funnel`, `--preview-wide` and `--preview-blink` (0 to 1) pose the face. |
+
 | Flag | Default | Description |
 |---|---|---|
-| `-a, --audio <path>` | *(required for video)* | Any spoken-word audio file (`.wav`, `.mp3`, `.m4a`, `.flac`, `.ogg`) |
-| `-d, --driving-video <path>` | — | Optional live-action talking-head video (from Scenario `LTX-2.5 Fast` or a webcam/iPhone clip) projected live frame-by-frame onto the 3D bust for cinema-grade lip-sync, teeth, mustache flex & blinks |
-| `-o, --out <path>` | *(required)* | Output file or stem (with `--format both`, writes `<stem>.mov` and `<stem>.mp4`) |
-| `-f, --format <type>` | `both` | `both` (ProRes 4444 `.mov` + black `.mp4`), `mov`, `mp4`, `webm` (VP9 alpha), or `png` |
-| `-r, --resolution <res>` | `1080p` | `720p`, `1080p`, `4k`, `vertical` (`1080x1920`, auto-switches to 9:16 top/bottom social HUD layout), `square` (`1080x1080`), or `WxH` |
-| `--fps <num>` | `30` | `24`, `30`, or `60` |
-| `--camera <preset>` | `hero` | `hero` (3/4 angle), `front`, `left34`, `right34`, `orbit` |
-| `--camera-motion <mode>` | `subtle` | `subtle` (organic drift), `static`, `orbit` |
-| `--camera-yaw <deg>` | — | Custom horizontal camera angle in degrees |
-| `--camera-pitch <deg>` | — | Custom vertical camera angle in degrees |
-| `--camera-zoom <num>` | `1.0` | Camera zoom multiplier (e.g. `1.2` closer, `0.85` wider) |
-| `--look-at-camera` / `--no-look-at-camera` | `--look-at-camera` | Aim head & eye gaze directly at the camera lens |
-| `--hud` / `--no-hud` | `--hud` | Toggle floating 3D sci-fi HUD telemetry (grids, reticles, live audio equalizer) |
-| `--emitter` / `--no-emitter` | `--emitter` | Toggle circular holo-projector base & upward volumetric rays |
-| `--background <mode>` | `auto` | `auto`, `transparent`, `black`, `lab` (dark volumetric backdrop) |
-| `--color <spec>` | `cyan` | Presets (`cyan`, `ice`, `amber`, `emerald`, `crimson`, `violet`) or `#RRGGBB` |
-| `--bloom <num>` | `1.0` | Volumetric glow strength (`0.0`–`2.0`) |
-| `--glitch <num>` | `0.35` | Audio-reactive holographic glitch intensity (`0.0`–`1.0`) |
-| `--text <string>` | — | Optional spoken transcript hint for Whisper word-level ARPABET phoneme alignment (auto-detected even without `--text`) |
-| `--transcript <path>` | — | Optional `.txt` file containing the spoken transcript |
-| `--bust <dir>` | `assets/bust` | Bust asset folder made by `build-bust` or `import-glb`. Use one folder per person. |
-| `--preview-frame <sec>` | — | Render a single PNG frame at timestamp `<sec>` (~1.5s) |
-| `--json` | `false` | Emit structured JSON metadata to stdout |
+| `--bust <dir>` | `assets/bust` | Bust folder from `import-glb` or `build-bust`, one per person |
+| `-o, --out <path>` | required | Output file or stem; `--format both` writes `<stem>.mov` and `<stem>.mp4` |
+| `-f, --format <type>` | `both` | `both`, `mov` (ProRes 4444 alpha), `mp4`, `webm` (VP9 alpha) or `png` |
+| `-r, --resolution <res>` | `1080p` | `720p`, `1080p`, `4k`, `vertical` (1080 x 1920 with a 9:16 HUD layout), `square` or `WxH` |
+| `--fps <num>` | `30` | `24`, `30` or `60` |
+| `--text <string>` | none | Transcript hint for phoneme alignment (helps with names) |
+| `--transcript <path>` | none | Transcript from a text file |
+| `--camera <preset>` | `hero` | `hero` (3/4), `front`, `left34`, `right34`, `orbit` |
+| `--camera-motion <mode>` | `subtle` | `subtle`, `static`, `orbit` |
+| `--camera-yaw <deg>`, `--camera-pitch <deg>` | none | Custom camera angle |
+| `--camera-zoom <num>` | `1.0` | `1.15` closer, `0.85` wider |
+| `--no-look-at-camera` | off | Keep the head facing forward instead of toward the camera |
+| `--no-hud` | off | Hide the floating HUD graphics |
+| `--no-emitter` | off | Hide the projector base and light cone (clean floating bust for overlays) |
+| `--background <mode>` | `auto` | `auto` (transparent for `both`, `mov`, `webm`; black otherwise), `transparent`, `black`, `lab` |
+| `--color <spec>` | `cyan` | `cyan`, `ice`, `amber`, `emerald`, `crimson`, `violet` or `#RRGGBB` |
+| `--bloom <num>` | `1.0` | Glow strength, 0 to 2 |
+| `--glitch <num>` | `0.35` | Audio-reactive glitch, 0 to 1 |
+| `--density <num>` | `1.0` | Point density, 0.3 to 1 |
+| `--intensity <num>` | `1.0` | Overall brightness |
+| `--point-scale <num>` | `1.08` | Dot size |
+| `--json` | off | JSON result on stdout |
 
-### `holome build-bust`
-Builds a sculpted and rigged 3D bust from a 3-panel FRONT/LEFT/RIGHT character sheet, or from three separate photos. `--out` is required, so a build never overwrites another person's bust by accident.
+Rendering takes 7 to 8 seconds per second of video on Apple Silicon.
+
+## Making a bust
+
+### `import-glb` (recommended)
+
+Rigs a 3D head (`.glb`, `.gltf` or `.obj`), for example from Tripo P2 Multi View on Scenario. It normalizes the mesh, finds the face orientation with MediaPipe, casts a 320 x 340 grid onto the nearest surface, bakes texture luminance and edges, and computes the jaw, lip, eyelid, brow and neck weights.
+
 ```bash
-./holome build-bust --sheet inputs/character_sheet.jpg --out assets/bust
-./holome build-bust --front f.png --left l.png --right r.png --out ~/HoloMe/jane/bust
+./holome import-glb --glb head.glb --out ~/HoloMe/jane-doe/bust [--yaw 90]
 ```
 
-The sheet is split with bordered panel detection first, then by finding the three people (`subjects`), then into equal thirds. Force one with `--layout bordered|subjects|thirds`. In the LEFT panel the nose must point to the image's left edge, in the RIGHT panel to the right edge. If a sheet gets that wrong, `--swap-profiles` swaps the two profiles and `--mirror-profile left|right` mirrors the good one.
+`--out` is required. `landmarksDetected: false` in the JSON means the face was not found; set `--yaw` to 90, 180 or 270. For Tripo, set `faceLimit: 50000`: the adaptive default returns a few thousand faces and loses facial detail at the same price.
 
-Every build writes `qa_panels.png` (silhouettes in magenta, face points in green) and reports `warnings` and `faceDetailGain` in its JSON. Panels are resampled to 468 px tall before baking, and smooth-skinned faces get an edge-detail lift so they render about as bright as a bearded one. Mesh resolution defaults to 320 x 340, the resolution of the bundled busts.
+### `build-bust` (no 3D model needed)
 
-### Selfie to hologram (agent skill)
-`skill/SKILL.md` is a Claude Code skill built on the Scenario MCP. It enrolls a person once from a few selfies: GPT Image 2.5 Sunburst makes a FRONT/LEFT/RIGHT character sheet (with `assets/templates/sheet_template.png` as the layout reference), Tripo P2 Multi View turns the sheet panels into a 3D head, and `import-glb` rigs it. After that, any selfie video of the person renders locally with `render --mocap-video`. Build the installable skill with:
+Builds a bust from a FRONT/LEFT/RIGHT character sheet with Depth Anything V2 and MediaPipe, or from three separate photos (`--front`, `--left`, `--right`, framed the same way on plain backgrounds). It needs no credits but gives a flatter face, and long hair becomes a shell around the face.
+
 ```bash
-scripts/package_skill.sh                # writes dist/scenario-selfie-hologram/ and dist/scenario-selfie-hologram.zip
-cp -R dist/scenario-selfie-hologram ~/.claude/skills/
-~/.claude/skills/scenario-selfie-hologram/tool/setup.sh
+./holome build-bust --sheet sheet.png --out ~/HoloMe/jane-doe/bust
 ```
-The package holds SKILL.md and a clean copy of this tool. It contains no busts, inputs or outputs.
 
-### Helper commands
+`--out` is required. It also writes the panels and `qa_panels.png` (see `split-sheet`), and its JSON reports `warnings` and `faceDetailGain`: smooth-skinned faces get an edge-detail lift so they render closer to a textured face.
+
+### `split-sheet`
+
+```bash
+./holome split-sheet --sheet sheet.png --out-dir panels
+```
+
+Writes `panel_front_hires.png`, `panel_left_hires.png`, `panel_right_hires.png` (Tripo inputs) and `qa_panels.png` (silhouettes in magenta, face points in green), and reports `warnings`. The sheet is split by its panel borders, then by finding the three people, then into equal thirds; force one with `--layout bordered|subjects|thirds`. The LEFT panel's nose must point to the image's left edge and the RIGHT panel's to the right edge: `--swap-profiles` swaps them, and `--mirror-profile left|right` mirrors the good one over the bad one. `build-bust` accepts the same flags.
+
+### `pick-frame`
+
+```bash
+./holome pick-frame --video take1.MOV --out frame.jpg
+```
+
+Picks the sharpest still that faces the camera with eyes open and mouth closed, at full resolution, and warns when the face is small, dark or never frontal.
+
+### `sheet-template`
+
+```bash
+./holome sheet-template --out sheet_template.png
+```
+
+Redraws `assets/templates/sheet_template.png`, the empty layout the image model fills.
+
+## Generated talking-head clips (LTX)
+
+For a person with photos but no video, LTX-2.5 on Scenario can generate a talking-head clip from the front panel and an audio file, at up to 20 seconds per clip.
+
 | Command | What it does |
 |---|---|
-| `holome doctor` | Checks Node packages, the Python environment, the face model, ffmpeg and Chrome |
-| `holome pick-frame --video v.mov --out f.jpg` | Picks the sharpest frontal, eyes-open, mouth-closed still from a selfie video |
-| `holome split-sheet --sheet s.png --out-dir d` | Splits a character sheet into full-resolution FRONT/LEFT/RIGHT panels (Tripo inputs) and writes `qa_panels.png` |
-| `holome sheet-template --out t.png` | Writes the empty FRONT/LEFT/RIGHT sheet layout used as the image model's reference |
-| `holome split-audio --audio a.wav --out-dir d` | Splits audio at pauses into segments of 19.5 s or less for LTX (20 s cap), writes `segments.json` |
-| `holome driving-frame --bust b --out f.png [--panel p.png]` | Crops the front panel into a 9:16 opening frame for LTX |
-| `holome join-driving --plan segments.json --videos 1.mp4 2.mp4 --out d.mp4` | Joins per-segment LTX clips, trimmed to each segment, locked to the original audio |
+| `./holome split-audio --audio a.wav --out-dir d` | Splits audio at pauses into segments of 19.5 s or less and writes `segments.json` |
+| `./holome driving-frame --bust b --panel panels/panel_front_hires.png --out frame.png` | Crops a front image to a 9:16 opening frame centered on the face |
+| `./holome join-driving --plan d/segments.json --videos 1.mp4 2.mp4 --out driving.mp4` | Trims each clip to its segment and joins them, locked to the original audio |
 
-`setup.sh` installs the Python environment (uv or python3.12), Node packages, the MediaPipe model and the renderer bundle into this folder, and prefetches the Depth Anything and Whisper weights.
+Render the joined clip with `--mocap-video driving.mp4`.
 
-### `holome import-glb` (Scenario.com / Custom 3D Bust Support)
-If you generate a high-res sculpted 3D bust on **Scenario.com** (or Meshy / Rodin / Blender) and export it as `.glb`, you can plug it directly into the HoloMe shader & lip-sync pipeline:
+## Compositing
+
+- **ProRes 4444 `.mov`:** put it on a track above your footage in Premiere Pro, DaVinci Resolve, Final Cut Pro or After Effects. The alpha keeps the soft glow without a dark fringe.
+- **Black-background `.mp4`:** set the layer's blend mode to Screen or Linear Dodge (Add).
+- **ffmpeg overlay:**
+
 ```bash
-./holome import-glb --glb path/to/scenario_bust.glb --out assets/bust_scenario
-./holome render --bust assets/bust_scenario --audio speech.wav --out outputs/scenario_clip
+ffmpeg -i background.mp4 -i clip.mov \
+  -filter_complex "[1:v]scale=720:-1[holo];[0:v][holo]overlay=W-w-40:H-h-40:shortest=1" \
+  -map 0:v -map 1:a -c:v libx264 -crf 18 -c:a aac composite.mp4
 ```
-
-`--out` is required, and the grid defaults to 320 x 340. For Tripo P2 Multi View on Scenario, set `faceLimit` to 50000: the adaptive default returns a few thousand faces and loses facial detail at the same price.
-
-## Compositing in Video Editors & FFmpeg
-
-- **ProRes 4444 (`.mov`)**: Drop directly onto a track above your footage in Premiere Pro, DaVinci Resolve, Final Cut Pro, or After Effects. The optical straight alpha preserves soft glowing cyan bloom halos with zero dark fringe.
-- **Black-Background (`.mp4`)**: Set layer blend mode to **Screen** or **Linear Dodge (Add)** for instant luminous holographic compositing.
-- **FFmpeg Overlay (Agentic Pipelines)**:
-  ```bash
-  ffmpeg -i background.mp4 -i outputs/my_clip.mov \
-    -filter_complex "[1:v]scale=720:-1[holo];[0:v][holo]overlay=W-w-40:H-h-40:shortest=1" \
-    -map 0:v -map 1:a -c:v libx264 -crf 18 -c:a aac final_composite.mp4
-  ```
-
-## Agentic Pipeline Integration
-
-See [`AGENT_SKILL.md`](./AGENT_SKILL.md) for drop-in instructions you can give Claude or other video-creation agents.

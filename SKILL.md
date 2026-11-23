@@ -26,7 +26,7 @@ Per-person files live in `~/HoloMe/<slug>/` (lowercase name with hyphens, such a
   renders/     finished hologram videos
 ```
 
-If `~/HoloMe/<slug>/bust/bust.bin` exists, the person is enrolled: go straight to the perform phase unless the user wants a new likeness.
+If `~/HoloMe/<slug>/bust/bust.bin` exists, the person is enrolled: go straight to the perform phase unless the user wants a new likeness. A video only drives the motion; the hologram always shows the enrolled person, so a video of someone else needs that person enrolled first.
 
 ## What to ask the user for
 
