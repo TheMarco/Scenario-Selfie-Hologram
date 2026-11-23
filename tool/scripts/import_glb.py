@@ -59,7 +59,8 @@ def load_combined_mesh(glb_path: Path) -> trimesh.Trimesh:
 
 def render_ortho_front(mesh: trimesh.Trimesh, size: int = 512) -> tuple[np.ndarray, float, float]:
     """Fast orthographic front projection (+Z) of mesh using dense surface sampling for MediaPipe detection."""
-    pts, f_idx, colors = trimesh.sample.sample_surface(mesh, 180000, sample_color=True)
+    # Fixed seed: the same GLB always gives the same render, landmarks and rig pivots
+    pts, f_idx, colors = trimesh.sample.sample_surface(mesh, 180000, sample_color=True, seed=0)
     norms = mesh.face_normals[f_idx]
     front = norms[:, 2] > -0.05
     pts = pts[front]
@@ -163,7 +164,7 @@ def import_glb(
 
     # Build dense color lookup tree from high-res textured surface sampling
     print("[import_glb] Sampling high-res texture colors & building structured contour grid...", file=sys.stderr)
-    c_pts, c_fidx, c_rgba = trimesh.sample.sample_surface(mesh, 450000, sample_color=True)
+    c_pts, c_fidx, c_rgba = trimesh.sample.sample_surface(mesh, 450000, sample_color=True, seed=1)
     color_tree = cKDTree(c_pts)
     if c_rgba is not None and len(c_rgba) == len(c_pts):
         c_rgb = c_rgba[:, :3].astype(np.float32) / 255.0
@@ -195,7 +196,19 @@ def import_glb(
     origins = np.stack([sx * R_start, yy, cz * R_start], axis=-1).reshape(-1, 3)
     dirs = np.stack([-sx, np.zeros_like(yy), -cz], axis=-1).reshape(-1, 3)
 
-    locs, idx_ray, idx_tri = mesh.ray.intersects_location(origins, dirs, multiple_hits=False)
+    # multiple_hits=False returns an arbitrary hit per ray (spatial-index order), which can be an
+    # inner surface (layered hair, glasses) and varies between runs. Take every hit and keep the
+    # one nearest the ray origin: the outermost surface seen from outside the head.
+    all_locs, all_ray, all_tri = mesh.ray.intersects_location(origins, dirs, multiple_hits=True)
+    if len(all_ray):
+        dist = np.einsum('ij,ij->i', all_locs - origins[all_ray], dirs[all_ray])
+        order = np.lexsort((dist, all_ray))
+        first = np.ones(len(order), dtype=bool)
+        first[1:] = all_ray[order][1:] != all_ray[order][:-1]
+        keep = order[first]
+        locs, idx_ray, idx_tri = all_locs[keep], all_ray[keep], all_tri[keep]
+    else:
+        locs, idx_ray, idx_tri = all_locs, all_ray, all_tri
 
     X = np.zeros((n_y, n_theta), dtype=np.float32)
     Y = yy.copy()

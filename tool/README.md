@@ -77,7 +77,7 @@ The sheet is split with bordered panel detection first, then by finding the thre
 Every build writes `qa_panels.png` (silhouettes in magenta, face points in green) and reports `warnings` and `faceDetailGain` in its JSON. Panels are resampled to 468 px tall before baking, and smooth-skinned faces get an edge-detail lift so they render about as bright as a bearded one. Mesh resolution defaults to 320 x 340, the resolution of the bundled busts.
 
 ### Selfie to hologram (agent skill)
-`skill/SKILL.md` is a Claude Code skill that turns one selfie into a hologram through the Scenario MCP: the selfie and `assets/templates/sheet_template.png` go to GPT Image 2.5 Sunburst to make the character sheet, then `build-bust` and `render` run locally. Build the installable skill with:
+`skill/SKILL.md` is a Claude Code skill built on the Scenario MCP. It enrolls a person once from a few selfies: GPT Image 2.5 Sunburst makes a FRONT/LEFT/RIGHT character sheet (with `assets/templates/sheet_template.png` as the layout reference), Tripo P2 Multi View turns the sheet panels into a 3D head, and `import-glb` rigs it. After that, any selfie video of the person renders locally with `render --mocap-video`. Build the installable skill with:
 ```bash
 scripts/package_skill.sh                # writes dist/scenario-selfie-hologram/ and dist/scenario-selfie-hologram.zip
 cp -R dist/scenario-selfie-hologram ~/.claude/skills/
@@ -89,9 +89,11 @@ The package holds SKILL.md and a clean copy of this tool. It contains no busts, 
 | Command | What it does |
 |---|---|
 | `holome doctor` | Checks Node packages, the Python environment, the face model, ffmpeg and Chrome |
+| `holome pick-frame --video v.mov --out f.jpg` | Picks the sharpest frontal, eyes-open, mouth-closed still from a selfie video |
+| `holome split-sheet --sheet s.png --out-dir d` | Splits a character sheet into full-resolution FRONT/LEFT/RIGHT panels (Tripo inputs) and writes `qa_panels.png` |
 | `holome sheet-template --out t.png` | Writes the empty FRONT/LEFT/RIGHT sheet layout used as the image model's reference |
 | `holome split-audio --audio a.wav --out-dir d` | Splits audio at pauses into segments of 19.5 s or less for LTX (20 s cap), writes `segments.json` |
-| `holome driving-frame --bust b --out f.png` | Crops the bust's full-resolution front panel into a 9:16 opening frame for LTX |
+| `holome driving-frame --bust b --out f.png [--panel p.png]` | Crops the front panel into a 9:16 opening frame for LTX |
 | `holome join-driving --plan segments.json --videos 1.mp4 2.mp4 --out d.mp4` | Joins per-segment LTX clips, trimmed to each segment, locked to the original audio |
 
 `setup.sh` installs the Python environment (uv or python3.12), Node packages, the MediaPipe model and the renderer bundle into this folder, and prefetches the Depth Anything and Whisper weights.
@@ -102,6 +104,8 @@ If you generate a high-res sculpted 3D bust on **Scenario.com** (or Meshy / Rodi
 ./holome import-glb --glb path/to/scenario_bust.glb --out assets/bust_scenario
 ./holome render --bust assets/bust_scenario --audio speech.wav --out outputs/scenario_clip
 ```
+
+`--out` is required, and the grid defaults to 320 x 340. For Tripo P2 Multi View on Scenario, set `faceLimit` to 50000: the adaptive default returns a few thousand faces and loses facial detail at the same price.
 
 ## Compositing in Video Editors & FFmpeg
 

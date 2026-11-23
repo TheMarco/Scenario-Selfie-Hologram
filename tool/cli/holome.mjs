@@ -497,6 +497,36 @@ async function runPythonJson(script, args, opts) {
   return result;
 }
 
+async function handlePickFrame(opts) {
+  const result = await runPythonJson('pick_frame.py', [
+    '--video', path.resolve(opts.video),
+    '--out', path.resolve(opts.out),
+    '--landmarker', LANDMARKER_PATH,
+  ], opts);
+  if (!opts.json) {
+    console.error(`[holome] Best frame at ${result.timeSec}s (yaw ${result.yawDeg} deg, jawOpen ${result.jawOpen}) -> ${result.frame}`);
+    for (const w of result.warnings) console.error(`[holome] WARNING: ${w}`);
+  }
+}
+
+async function handleSplitSheet(opts) {
+  const args = [
+    '--sheet', path.resolve(opts.sheet),
+    '--out', path.resolve(opts.outDir),
+    '--landmarker', LANDMARKER_PATH,
+    '--layout', String(opts.layout),
+    '--panels-only',
+  ];
+  if (opts.swapProfiles) args.push('--swap-profiles');
+  if (opts.mirrorProfile) args.push('--mirror-profile', String(opts.mirrorProfile));
+  const result = await runPythonJson('build_bust.py', args, opts);
+  if (!opts.json) {
+    console.error(`[holome] Split sheet (layout=${result.layout}); QA preview: ${result.qaPreview}`);
+    for (const [k, p] of Object.entries(result.panels)) console.error(`  ${k}: ${p}`);
+    for (const w of result.warnings) console.error(`[holome] WARNING: ${w}`);
+  }
+}
+
 async function handleSheetTemplate(opts) {
   const result = await runPythonJson('make_sheet_template.py', ['--out', path.resolve(opts.out)], opts);
   if (!opts.json) console.error(`[holome] Wrote sheet template -> ${result.template}`);
@@ -521,6 +551,8 @@ async function handleDrivingFrame(opts) {
     '--out', path.resolve(opts.out),
     '--aspect', String(opts.aspect),
     '--height', String(opts.height),
+    '--landmarker', LANDMARKER_PATH,
+    ...(opts.panel ? ['--panel', path.resolve(opts.panel)] : []),
   ], opts);
   if (!opts.json) console.error(`[holome] Wrote ${result.width}x${result.height} opening frame -> ${result.frame}`);
 }
@@ -579,7 +611,7 @@ async function handleDoctor(opts) {
   }
   try {
     const { stdout } = await runCommand(PYTHON_BIN, ['-c',
-      'import sys, cv2, mediapipe, torch, transformers, faster_whisper, cmudict, scipy, trimesh, PIL; '
+      'import sys, cv2, mediapipe, torch, transformers, faster_whisper, cmudict, scipy, trimesh, rtree, PIL; '
       + 'print(sys.version.split()[0], "mps" if torch.backends.mps.is_available() else "cpu")'], { label: 'python' });
     ok('python', true, `${PYTHON_BIN} (${stdout.trim()})`);
   } catch (e) {
@@ -710,6 +742,25 @@ program
   .action(failOnError(handleDoctor));
 
 program
+  .command('pick-frame')
+  .description('Pick the sharpest frontal, eyes-open, mouth-closed still from a selfie video')
+  .requiredOption('--video <path>', 'Selfie video (.MOV, .mp4)')
+  .requiredOption('--out <path>', 'Output JPEG path')
+  .option('--json', 'Emit JSON output', false)
+  .action(failOnError(handlePickFrame));
+
+program
+  .command('split-sheet')
+  .description('Split a character sheet into full-resolution FRONT/LEFT/RIGHT panels (for Tripo) plus a QA preview')
+  .requiredOption('--sheet <path>', 'Character sheet image')
+  .requiredOption('--out-dir <dir>', 'Directory for panel_*_hires.png and qa_panels.png')
+  .option('--layout <mode>', 'auto, bordered, subjects, thirds', 'auto')
+  .option('--swap-profiles', 'Swap the left and right panels')
+  .option('--mirror-profile <side>', 'Use only this profile (left or right) and mirror it for the other')
+  .option('--json', 'Emit JSON output', false)
+  .action(failOnError(handleSplitSheet));
+
+program
   .command('sheet-template')
   .description('Write the empty FRONT/LEFT/RIGHT character sheet template used as a layout reference')
   .requiredOption('--out <path>', 'Output PNG path')
@@ -731,6 +782,7 @@ program
   .description('Crop a bust\'s front panel into the opening frame for an audio-to-video talking-head model')
   .requiredOption('--bust <dir>', 'Bust asset directory')
   .requiredOption('--out <path>', 'Output PNG path')
+  .option('--panel <path>', 'Front image to crop instead of the bust\'s saved front panel (e.g. split-sheet output)')
   .option('--aspect <ratio>', '9:16 or 16:9', '9:16')
   .option('--height <px>', 'Output height in pixels', '1280')
   .option('--json', 'Emit JSON output', false)
@@ -750,9 +802,9 @@ program
   .command('import-glb')
   .description('Import & auto-rig an external 3D bust (.glb/.gltf/.obj, e.g. from Scenario.com) into HoloMe format')
   .requiredOption('--glb <path>', 'Path to .glb/.gltf/.obj bust file')
-  .option('--out <dir>', 'Output bust asset directory', path.join(ROOT_DIR, 'assets/bust_scenario'))
-  .option('--rows <num>', 'Vertical contour ring resolution', '260')
-  .option('--cols <num>', 'Circumferential column resolution', '280')
+  .requiredOption('--out <dir>', 'Output bust asset directory (one per person)')
+  .option('--rows <num>', 'Vertical contour ring resolution', '320')
+  .option('--cols <num>', 'Circumferential column resolution', '340')
   .option('--yaw <deg>', 'Manual yaw override in degrees (auto-detected if omitted)')
   .option('--json', 'Emit JSON output', false)
   .action((opts) => handleImportGlb(opts).catch((err) => {

@@ -1,17 +1,23 @@
 # Scenario Selfie Hologram
 
-A Claude Code skill that turns one selfie into a talking 3D hologram video of that person, driven by any spoken-word audio.
+A Claude Code skill that turns a person into a talking 3D hologram. Enroll them once from a few selfies, then turn any selfie video from their phone into a hologram video with their real lip, blink and head motion and their own voice.
 
-The skill runs the AI steps through the [Scenario](https://www.scenario.com) MCP and everything else locally with the bundled HoloMe CLI. It produces Apple ProRes 4444 with alpha (`.mov`) for compositing and a black-background H.264 (`.mp4`) for Screen or Add blending.
+All generation runs on [Scenario](https://www.scenario.com) through its MCP. Rigging and rendering run locally with the bundled HoloMe CLI, which writes Apple ProRes 4444 with alpha (`.mov`) for compositing and a black-background H.264 (`.mp4`) for Screen or Add blending.
 
 ## How it works
 
-1. The selfie and an empty FRONT/LEFT/RIGHT sheet template (`tool/assets/templates/sheet_template.png`) go to GPT Image 2.5 Sunburst on Scenario, which returns a three-view studio character sheet of the person.
-2. Claude checks the sheet for identity, profile directions and framing before anything else runs.
-3. `holome build-bust` splits the sheet, runs Depth Anything V2 and MediaPipe Face Landmarker, and builds a rigged point-cloud bust (jaw, lips, eyelids, brows, head and neck). It writes a QA image that Claude inspects.
-4. `holome render` analyzes the audio (faster-whisper word timing plus CMUdict phonemes) and renders the hologram in headless Chrome with Three.js.
+**Enroll (once per person, about 255 Scenario CU)**
 
-An optional driving-video mode generates an LTX-2.5 talking-head clip of the person on Scenario and projects it onto the bust. It costs more credits and is off unless you ask for it.
+1. One to five selfies (or a selfie video, from which the skill picks the best frame) plus an empty FRONT/LEFT/RIGHT template go to GPT Image 2.5 Sunburst, which returns a three-view studio character sheet.
+2. `holome split-sheet` cuts the sheet into full-resolution panels and writes a QA image. Claude checks identity, profile directions and silhouettes before anything else is spent.
+3. Tripo P2 Multi View turns the three panels into a textured 3D head (50,000 faces).
+4. `holome import-glb` finds the face with MediaPipe and rigs the head: jaw, lips, eyelids, brows, head and neck.
+
+**Perform (any number of times, no credits)**
+
+5. `holome render --mocap-video <selfie video>` tracks 52 face blendshapes and head pose in every frame, times the lips to the speech with Whisper phonemes, uses the video's audio as the voice, and renders the hologram in headless Chrome with Three.js.
+
+Audio-only clips (`--audio`) and LTX-2.5 generated talking-head clips for people without a video are also supported.
 
 ## Requirements
 
@@ -31,38 +37,46 @@ git clone https://github.com/TheMarco/Scenario-Selfie-Hologram.git ~/.claude/ski
 
 ## Use
 
-Ask Claude in plain language, for example:
+Ask Claude in plain language:
 
-> Make a hologram of me from ~/Desktop/selfie.jpg talking with ~/Desktop/intro.m4a. Vertical, for Reels.
+> Enroll me as a hologram from these selfies: ~/Desktop/front.jpg ~/Desktop/left.jpg ~/Desktop/right.jpg
 
-Each person gets a folder in `~/HoloMe/<name>/` with the selfie, the generated sheet, the bust, previews and renders. Later clips for the same person reuse the bust and cost no Scenario credits.
+> Turn ~/Movies/intro.MOV into a vertical hologram video of me.
+
+Each person gets a folder in `~/HoloMe/<name>/` with the photos, sheet, 3D head, rigged bust, previews and renders.
+
+### Recording tips
+
+- **Selfies:** one straight into the camera, plus one turned partly left and one partly right if you can. Even light, no sunglasses or hat, face sharp.
+- **Videos:** front camera at eye level, face and shoulders in frame, light in front of you, quiet room. Start with two seconds of neutral face with your mouth closed, then talk. Any length.
 
 ## Cost
 
 | Step | Scenario credits |
 |---|---|
 | Character sheet (GPT Image 2.5 Sunburst, 2048 x 1152, high) | about 13 CU per attempt |
-| Audio-driven render | none, runs locally |
-| Driving-video mode (LTX-2.5 Fast, optional) | about 18 CU per second of audio at 720p, 26 at 1080p |
+| 3D head (Tripo P2 Multi View, 50,000 faces, detailed texture) | about 240 CU |
+| Hologram video from a selfie video or audio | none, runs locally |
+| LTX-2.5 talking-head clip (optional, for people without a video) | about 18 CU per second of audio at 720p |
 
-The skill quotes the LTX cost with a dry run and asks before spending it.
+The skill states the enrollment cost and confirms once before the first billed call.
 
 ## Limits
 
-- The side views are generated from one photo, so ears, jaw line and the back of the head are the image model's guesses.
-- The bust shape comes from silhouettes plus depth estimation. Long hair forms a shell around the face, and hats, hoods or large headphones change the head shape.
-- Smooth skin renders dimmer than a bearded or textured face. The bust builder lifts edge detail on smooth faces to reduce the gap.
+- The side views are generated from the photos, so ears, jaw line and the back of the head are the image model's best guess. Turned photos reduce the guessing.
+- Thin details such as glasses frames can get lost in the 3D head.
+- Smooth skin renders dimmer than a bearded or textured face.
 - Tested on macOS with Apple Silicon. Linux should work with Chrome or Playwright Chromium but is untested.
 
 ## Repository layout
 
 ```
 SKILL.md                  the skill Claude Code loads
-tool/holome               CLI entry point (render, build-bust, doctor, split-audio, driving-frame, join-driving, ...)
+tool/holome               CLI entry point
 tool/setup.sh             installer
 tool/cli/                 Node CLI
 tool/renderer/            Three.js hologram renderer
-tool/scripts/             Python pipeline (bust builder, audio analysis, driving video)
+tool/scripts/             Python pipeline (frame picking, sheet splitting, rigging, mocap, audio)
 tool/assets/templates/    empty character sheet template
 ```
 
