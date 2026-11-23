@@ -1,0 +1,19 @@
+{
+  "name": "holome",
+  "version": "1.0.0",
+  "description": "High-end 3D audio-driven hologram generator CLI for video production and agentic pipelines",
+  "type": "module",
+  "bin": {
+    "holome": "./cli/holome.mjs"
+  },
+  "scripts": {
+    "build:renderer": "node renderer/bundle.mjs",
+    "render": "node cli/holome.mjs render"
+  },
+  "dependencies": {
+    "commander": "^13.1.0",
+    "esbuild": "^0.25.0",
+    "playwright-core": "^1.51.1",
+    "three": "^0.174.0"
+  }
+}

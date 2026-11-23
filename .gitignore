@@ -1,0 +1,10 @@
+# Installed by tool/setup.sh
+tool/.venv/
+tool/node_modules/
+tool/renderer/dist/
+tool/assets/models/
+
+# Python and OS files
+__pycache__/
+*.pyc
+.DS_Store
