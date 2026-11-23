@@ -6,7 +6,7 @@ All generation runs on [Scenario](https://www.scenario.com) through its MCP. Rig
 
 ## Demo
 
-See it in action in the [demo video on X](https://x.com/AIandDesign/status/2123896798137954667).
+https://github.com/user-attachments/assets/7bd2e300-0611-48ce-b6a0-14258892f99d
 
 ## How it works
 
