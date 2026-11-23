@@ -104,3 +104,7 @@ tool/assets/templates/    empty character sheet template
 ```
 
 See [`tool/README.md`](tool/README.md) for every CLI command and flag.
+
+## License
+
+MIT. See [LICENSE](LICENSE).

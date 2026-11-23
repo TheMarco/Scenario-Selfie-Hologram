@@ -2,6 +2,7 @@
   "name": "holome",
   "version": "1.0.0",
   "description": "High-end 3D audio-driven hologram generator CLI for video production and agentic pipelines",
+  "license": "MIT",
   "type": "module",
   "bin": {
     "holome": "./cli/holome.mjs"
