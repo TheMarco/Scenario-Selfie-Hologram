@@ -12,26 +12,48 @@ import cv2
 import numpy as np
 
 
+def face_center_x(img_bgr: np.ndarray, landmarker: str) -> float:
+    """Horizontal face center from MediaPipe; image center if no face is found."""
+    import mediapipe as mp
+    options = mp.tasks.vision.FaceLandmarkerOptions(
+        base_options=mp.tasks.BaseOptions(model_asset_path=landmarker),
+        running_mode=mp.tasks.vision.RunningMode.IMAGE,
+        num_faces=1,
+    )
+    rgb = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2RGB)
+    with mp.tasks.vision.FaceLandmarker.create_from_options(options) as lm:
+        res = lm.detect(mp.Image(image_format=mp.ImageFormat.SRGB, data=rgb))
+    if not res.face_landmarks:
+        return img_bgr.shape[1] / 2.0
+    xs = [p.x for p in res.face_landmarks[0]]
+    return 0.5 * (min(xs) + max(xs)) * img_bgr.shape[1]
+
+
 def main():
     parser = argparse.ArgumentParser(description="Crop the bust's front panel into an opening frame for LTX")
     parser.add_argument("--bust", required=True, help="Bust directory (contains panel_front.png and bust_meta.json)")
     parser.add_argument("--out", required=True, help="Output PNG path")
     parser.add_argument("--aspect", default="9:16", choices=["9:16", "16:9"])
     parser.add_argument("--height", type=int, default=1280, help="Output height in pixels")
+    parser.add_argument("--panel", help="Front image to use instead of the bust's saved front panel")
+    parser.add_argument("--landmarker", help="MediaPipe face_landmarker.task, used to center the face when the bust has no faceBox")
     args = parser.parse_args()
 
     bust = Path(args.bust)
     hires = bust / "panel_front_hires.png"
-    panel = cv2.imread(str(hires if hires.exists() else bust / "panel_front.png"))
+    src = Path(args.panel) if args.panel else (hires if hires.exists() else bust / "panel_front.png")
+    panel = cv2.imread(str(src))
     if panel is None:
-        raise SystemExit(f"panel_front.png not found in {bust}")
+        raise SystemExit(f"No front image at {src}. Pass --panel (for example panel_front_hires.png from split-sheet).")
     meta = json.loads((bust / "bust_meta.json").read_text())
     H, W = panel.shape[:2]
     front_meta = meta.get("frontPanel", {})
-    face = front_meta.get("faceBox")
-    # faceBox is in the coordinates of the (resampled) panel used for rigging
-    box_w = float(front_meta.get("size", [W, H])[0])
-    cx = 0.5 * (face[0] + face[2]) * (W / box_w) if face else W / 2.0
+    face = None if args.panel else front_meta.get("faceBox")
+    if face:
+        # faceBox is in the coordinates of the (resampled) panel used for rigging
+        cx = 0.5 * (face[0] + face[2]) * (W / float(front_meta.get("size", [W, H])[0]))
+    else:
+        cx = face_center_x(panel, args.landmarker) if args.landmarker else W / 2.0
 
     aw, ah = (9, 16) if args.aspect == "9:16" else (16, 9)
     out_h = args.height

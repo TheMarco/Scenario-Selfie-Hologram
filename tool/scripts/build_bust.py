@@ -452,6 +452,7 @@ def build_bust(
     layout: str = "auto",
     swap_profiles: bool = False,
     mirror_profile: str | None = None,
+    panels_only: bool = False,
 ):
     out_dir.mkdir(parents=True, exist_ok=True)
 
@@ -469,18 +470,23 @@ def build_bust(
         source = str(sheet_path.resolve())
     print(f"[build_bust] Panel layout: {layout_used}", file=sys.stderr)
 
-    # Edge and detail maps are computed per pixel, and the shaders were tuned on 468 px tall
-    # panels. Resample every panel to that height so sheets of any resolution bake alike.
-    # Keep the full-resolution front panel for talking-head opening frames (driving-frame).
-    cv2.imwrite(str(out_dir / "panel_front_hires.png"), p_front)
-    p_front, p_left, p_right = [to_canonical_height(p) for p in (p_front, p_left, p_right)]
-
     if swap_profiles:
         p_left, p_right = p_right, p_left
     if mirror_profile == "left":
         p_right = cv2.flip(p_left, 1)
     elif mirror_profile == "right":
         p_left = cv2.flip(p_right, 1)
+
+    # Keep full-resolution panels: the front one is the LTX opening frame (driving-frame), and
+    # all three are the inputs for image-to-3D models such as Tripo P2 Multi View.
+    hires = {}
+    for name, panel in (("front", p_front), ("left", p_left), ("right", p_right)):
+        hires[name] = str(out_dir / f"panel_{name}_hires.png")
+        cv2.imwrite(hires[name], panel)
+
+    # Edge and detail maps are computed per pixel, and the shaders were tuned on 468 px tall
+    # panels. Resample every panel to that height so sheets of any resolution bake alike.
+    p_front, p_left, p_right = [to_canonical_height(p) for p in (p_front, p_left, p_right)]
 
     # Save cropped panels for inspection
     cv2.imwrite(str(out_dir / "panel_front.png"), p_front)
@@ -520,6 +526,17 @@ def build_bust(
     face_ys = lms[:, 1] * Hf
     face_box = [float(face_xs.min()), float(face_ys.min()), float(face_xs.max()), float(face_ys.max())]
     write_qa_preview(out_dir / "qa_panels.png", [p_front, p_left, p_right], [m_front, m_left, m_right], lms)
+    if panels_only:
+        print(json.dumps({
+            "status": "ok",
+            "layout": layout_used,
+            "qaPreview": str(out_dir / "qa_panels.png"),
+            "panels": hires,
+            "silhouettes": stats,
+            "frontalOffset": round(frontal_offset, 3),
+            "warnings": warnings,
+        }))
+        return
     Hl, Wl = p_left.shape[:2]
     Hr, Wr = p_right.shape[:2]
 
@@ -1097,6 +1114,8 @@ def main():
     parser.add_argument("--mirror-profile", choices=["left", "right"],
                         help="Use only this profile and mirror it to make the other one")
     parser.add_argument("--out", required=True, help="Output directory for bust assets")
+    parser.add_argument("--panels-only", action="store_true",
+                        help="Only split the sheet, write full-resolution panels and the QA preview, then stop")
     parser.add_argument("--landmarker", default="assets/models/face_landmarker.task", help="MediaPipe face_landmarker.task path")
     parser.add_argument("--rows", type=int, default=260, help="Vertical ring count")
     parser.add_argument("--cols", type=int, default=280, help="Circumferential column count")
@@ -1120,6 +1139,7 @@ def main():
         layout=args.layout,
         swap_profiles=args.swap_profiles,
         mirror_profile=args.mirror_profile,
+        panels_only=args.panels_only,
     )
 
 
